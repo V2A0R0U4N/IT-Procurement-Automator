@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IT Procurement Agent</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --primary-hover: #4338ca;
+            --bg-body: #f1f5f9;
+            --bg-card: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+            --success: #10b981;
+            --danger: #ef4444;
+            --accent: #f59e0b;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            min-height: 100vh;
+        }
+
+        .navbar {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem 0;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+        }
+
+        .navbar-brand {
+            font-weight: 800;
+            color: var(--primary) !important;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            letter-spacing: -0.5px;
+        }
+
+        .hero-section {
+            padding: 2.5rem 0 1.5rem;
+            text-align: center;
+        }
+
+        .hero-title {
+            font-weight: 800;
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, #4f46e5 0%, #9333ea 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -1px;
+        }
+
+        .card-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .preset-card {
+            cursor: pointer;
+            height: 100%;
+            border: 2px solid transparent;
+            border-radius: var(--radius-md);
+            background: #fff;
+            padding: 1rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+            transition: all 0.2s ease;
+        }
+
+        .preset-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.1);
+        }
+
+        .search-area {
+            background: var(--bg-card);
+            padding: 2rem;
+            border-radius: var(--radius-lg);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+            margin-bottom: 2rem;
+            border: 1px solid var(--border-color);
+        }
+
+        #requestText {
+            border-radius: var(--radius-md);
+            border-color: var(--border-color);
+            resize: none;
+            padding: 1rem;
+            font-size: 1rem;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
+        }
+
+        #requestText:focus {
+            box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.15);
+            border-color: var(--primary);
+            outline: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+            border: none;
+            padding: 0.8rem 2.5rem;
+            font-weight: 600;
+            border-radius: var(--radius-md);
+            transition: all 0.2s;
+            box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2);
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #4338ca 0%, #4f46e5 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 8px -1px rgba(79, 70, 229, 0.3);
+        }
+
+        /* History Sidebar */
+        .history-item {
+            cursor: pointer;
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            transition: background 0.2s;
+            border-left: 3px solid transparent;
+        }
+        .history-item:hover {
+            background: #f8fafc;
+            border-left-color: var(--primary);
+        }
+        .history-time {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+        }
+        .history-query {
+            font-size: 0.85rem;
+            font-weight: 500;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* Progress */
+        .progress-container {
+            display: none;
+            margin-top: 1.5rem;
+        }
+        .progress {
+            height: 10px;
+            border-radius: 5px;
+            background-color: #e2e8f0;
+            overflow: hidden;
+        }
+        .progress-bar {
+            background: linear-gradient(90deg, #4f46e5, #818cf8, #4f46e5);
+            background-size: 200% 100%;
+            animation: gradientMove 2s linear infinite;
+        }
+
+        @keyframes gradientMove {
+            0% { background-position: 100% 0; }
+            100% { background-position: -100% 0; }
+        }
+
+        .results-section {
+            display: none;
+            margin-top: 2rem;
+            animation: fadeIn 0.4s ease forwards;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .stat-card {
+            background: white;
+            padding: 1.25rem;
+            text-align: center;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .stat-value {
+            font-size: 1.75rem;
+            font-weight: 800;
+            display: block;
+            line-height: 1.2;
+        }
+        .stat-label {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .requirement-pill {
+            background: white;
+            color: #334155;
+            padding: 0.4rem 0.8rem;
+            border-radius: 999px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            border: 1px solid var(--border-color);
+            margin: 0.25rem;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+        }
+
+        /* Filters */
+        .filter-bar {
+            background: white;
+            padding: 1rem;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 1.5rem;
+        }
+        .filter-bar select {
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            padding: 0.4rem 0.8rem;
+            font-size: 0.85rem;
+            color: var(--text-main);
+            background: #f8fafc;
+        }
+
+        /* Product Cards */
+        .product-card {
+            background: white;
+            margin-bottom: 1.5rem;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+            overflow: hidden;
+            box-shadow: 0 2px 8px -2px rgba(0,0,0,0.05);
+        }
+
+        .product-header {
+            padding: 1.25rem;
+            border-bottom: 1px solid var(--border-color);
+            background: #fdfdfd;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .platform-badge {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            font-weight: 800;
+            padding: 0.25rem 0.6rem;
+            border-radius: 6px;
+            letter-spacing: 0.5px;
+        }
+        .badge-amazon { background-color: #ff9900; color: white; }
+        .badge-flipkart { background-color: #2874f0; color: white; }
+
+        .spec-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 1rem;
+            padding: 1.25rem;
+            background: white;
+        }
+        .spec-item { font-size: 0.85rem; }
+        .spec-key { color: var(--text-muted); display: block; font-size: 0.75rem; text-transform: uppercase; font-weight: 600; margin-bottom: 2px;}
+        .spec-val { font-weight: 600; color: var(--text-main); }
+
+        .reviews-section {
+            padding: 1rem 1.25rem;
+            background: #f8fafc;
+            border-top: 1px dashed var(--border-color);
+        }
+        .review-box {
+            background: white;
+            padding: 0.75rem;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            font-size: 0.8rem;
+            color: #475569;
+            margin-bottom: 0.5rem;
+            position: relative;
+        }
+        .review-box::before {
+            content: '"';
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            font-size: 1.2rem;
+            color: #cbd5e1;
+            font-family: serif;
+        }
+
+        .verdict-area {
+            padding: 1rem 1.25rem;
+            background: #f1f5f9;
+            border-top: 1px solid var(--border-color);
+        }
+        .verdict-approved { border-left: 4px solid var(--success); }
+        .verdict-rejected { border-left: 4px solid var(--danger); }
+        .verdict-suggestion { border-left: 4px solid var(--accent); }
+
+        .nav-tabs {
+            border-bottom: 2px solid var(--border-color);
+            margin-bottom: 1.5rem;
+        }
+        .nav-tabs .nav-link {
+            border: none;
+            color: var(--text-muted);
+            font-weight: 600;
+            padding: 0.75rem 1.5rem;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            background: transparent;
+        }
+        .nav-tabs .nav-link:hover { color: var(--primary); }
+        .nav-tabs .nav-link.active {
+            color: var(--primary);
+            border-bottom: 3px solid var(--primary);
+            background: transparent;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+
+<nav class="navbar sticky-top">
+    <div class="container-fluid px-4 px-lg-5">
+        <a class="navbar-brand" href="#">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+            ProcureMind AI
+        </a>
+    </div>
+</nav>
+
+<div class="container-fluid px-4 px-lg-5 mb-5 mt-4">
+    <div class="row">
+        <!-- Sidebar -->
+        <div class="col-lg-3 d-none d-lg-block">
+            <div class="card card-panel h-100 border-0">
+                <div class="card-body p-4">
+                    <h6 class="fw-bold mb-3 d-flex align-items-center text-uppercase text-muted" style="letter-spacing: 1px; font-size: 0.75rem;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                        Search History
+                    </h6>
+                    <div id="historyList" class="d-flex flex-column gap-1">
+                        <div class="text-muted small py-2">No past searches found.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="col-lg-9">
+            <div class="hero-section pt-2">
+                <h1 class="hero-title">Automate IT Procurement</h1>
+                <p class="text-muted lead fs-6">Intelligent search, evaluation, and comparisons across multiple platforms.</p>
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-md-6 mb-3">
+                    <div class="preset-card" onclick="fillPreset('laptop')">
+                        <div class="d-flex align-items-center mb-2">
+                            <span class="fs-4 me-2">💻</span>
+                            <h6 class="mb-0 fw-bold">Engineering Laptops</h6>
+                        </div>
+                        <p class="small text-muted mb-0">Asus/Samsung, i5 12th Gen+, 16GB RAM, 512GB SSD</p>
+                    </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <div class="preset-card" onclick="fillPreset('monitor')">
+                        <div class="d-flex align-items-center mb-2">
+                            <span class="fs-4 me-2">🖥️</span>
+                            <h6 class="mb-0 fw-bold">Design Monitors</h6>
+                        </div>
+                        <p class="small text-muted mb-0">27 inch, 4K, IPS, under ₹28,000</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="search-area shadow-sm">
+                <div class="form-group mb-4">
+                    <label for="requestText" class="form-label fw-bold text-dark">Describe your requirements:</label>
+                    <textarea class="form-control" id="requestText" rows="4" placeholder="e.g., I need 5 Dell laptops for the sales team with 8GB RAM, 256GB SSD under ₹50,000..."></textarea>
+                </div>
+                <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                    <button class="btn btn-primary d-flex align-items-center gap-2" id="searchBtn" onclick="startSearch()">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                        Discover Products
+                    </button>
+                </div>
+
+                <!-- Progress UI -->
+                <div class="progress-container" id="progressArea">
+                    <div class="d-flex justify-content-between mb-2">
+                        <span id="statusMessage" class="fw-medium small text-primary">Initializing...</span>
+                        <span id="progressPercent" class="text-primary fw-bold small">0%</span>
+                    </div>
+                    <div class="progress shadow-sm">
+                        <div class="progress-bar" id="progressBar" role="progressbar" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Results UI -->
+            <div class="results-section" id="resultsArea">
+                <div class="d-flex justify-content-between align-items-end mb-3">
+                    <h5 class="fw-bold mb-0">Analysis Report</h5>
+                    <span class="text-muted small" id="timeTakenLabel"></span>
+                </div>
+
+                <div class="row mb-4" id="summaryStats">
+                    <!-- Stats cards injected here -->
+                </div>
+
+                <div class="card card-panel border-0 mb-4 p-4">
+                    <h6 class="text-muted text-uppercase mb-3" style="font-size: 0.75rem; font-weight: 700; letter-spacing: 0.5px;">Extracted Guidelines</h6>
+                    <div id="requirementTags">
+                        <!-- Tags injected here -->
+                    </div>
+                </div>
+
+                <!-- Filters -->
+                <div class="filter-bar d-flex justify-content-between shadow-sm">
+                    <div class="d-flex align-items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-muted"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+                        <span class="fw-bold text-dark small me-2">Filters:</span>
+                        <select id="filterBrand" onchange="applyFilters()">
+                            <option value="all">All Brands</option>
+                        </select>
+                        <select id="filterPlatform" onchange="applyFilters()">
+                            <option value="all">Platforms</option>
+                            <option value="Amazon">Amazon</option>
+                            <option value="Flipkart">Flipkart</option>
+                        </select>
+                    </div>
+                </div>
+
+                <ul class="nav nav-tabs" id="resultTabs" role="tablist">
+                    <li class="nav-item">
+                        <button class="nav-link active" id="approved-tab" data-bs-toggle="tab" data-bs-target="#approved" type="button">Approved (0)</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" id="suggestions-tab" data-bs-toggle="tab" data-bs-target="#suggestions" type="button">Alternatives (0)</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" id="rejected-tab" data-bs-toggle="tab" data-bs-target="#rejected" type="button">Rejected (0)</button>
+                    </li>
+                </ul>
+
+                <div class="tab-content" id="resultTabsContent">
+                    <div class="tab-pane fade show active" id="approved">
+                        <div id="approvedList"></div>
+                    </div>
+                    <div class="tab-pane fade" id="suggestions">
+                        <div id="suggestionsList"></div>
+                    </div>
+                    <div class="tab-pane fade" id="rejected">
+                        <div id="rejectedList"></div>
+                    </div>
+                </div>
+                
+                <div class="mt-5 text-center">
+                    <button class="btn btn-outline-secondary px-4 py-2 fw-bold" onclick="resetSearch()">Start New Search</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let pollTimer = null;
+    let currentJobId = null;
+    let currentResultData = null; // Store entire result object for filtering
+
+    // --- On Load ---
+    document.addEventListener('DOMContentLoaded', () => {
+        loadHistorySidebar();
+    });
+
+    // --- Presets ---
+    function fillPreset(type) {
+        const text = type === 'laptop' 
+            ? "Need laptops for data scientists.\nBrand must be Lenovo or Dell.\nProcessor must be Intel Core i7 (13th Gen).\nMemory exactly 16GB RAM.\nStorage exactly 1TB SSD.\nPrice must be under ₹90,000."
+            : "We need external monitors for the design team.\nScreen size must be 27 inches\nResolution must be 4K\nPanel type must be IPS\nPrice must be under ₹28,000";
+        document.getElementById('requestText').value = text;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // --- API Calls ---
+    async function startSearch() {
+        const text = document.getElementById('requestText').value;
+        if (!text) return alert("Please enter a request to analyze.");
+
+        document.getElementById('searchBtn').disabled = true;
+        document.getElementById('progressArea').style.display = 'block';
+        document.getElementById('resultsArea').style.display = 'none';
+        updateProgress('Sending request...', 0);
+
+        try {
+            const response = await fetch('/api/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ request_text: text })
+            });
+
+            if (!response.ok) throw new Error("Failed to start search");
+            
+            const data = await response.json();
+            currentJobId = data.job_id;
+            
+            pollTimer = setInterval(pollStatus, 2000);
+        } catch (err) {
+            alert("Error: " + err.message);
+            resetSearch();
+        }
+    }
+
+    async function pollStatus() {
+        if (!currentJobId) return;
+
+        try {
+            const response = await fetch(`/api/status/${currentJobId}`);
+            const data = await response.json();
+
+            updateProgress(data.message, data.progress);
+
+            if (data.status === 'done') {
+                clearInterval(pollTimer);
+                
+                // Add full query text to the result payload for history saving
+                const finalResult = data.result;
+                finalResult.original_query = document.getElementById('requestText').value;
+                finalResult.timestamp = new Date().getTime();
+                finalResult.job_id = currentJobId;
+
+                saveToHistory(finalResult);
+                showResults(finalResult);
+            } else if (data.status === 'error') {
+                clearInterval(pollTimer);
+                alert("Search failed: " + data.message);
+                resetSearch();
+            }
+        } catch (err) {
+            console.error("Polling error:", err);
+        }
+    }
+
+    function updateProgress(msg, pct) {
+        document.getElementById('statusMessage').innerText = msg;
+        document.getElementById('progressPercent').innerText = pct + '%';
+        document.getElementById('progressBar').style.width = pct + '%';
+    }
+
+    // --- UI Rendering ---
+    function showResults(result) {
+        currentResultData = result;
+        document.getElementById('progressArea').style.display = 'none';
+        document.getElementById('resultsArea').style.display = 'block';
+
+        const summary = result.search_summary;
+        const altsCount = result.suggested_alternatives ? result.suggested_alternatives.length : 0;
+        
+        document.getElementById('timeTakenLabel').innerText = `Completed in ${result.execution_time}s`;
+
+        // Summary Stats
+        const statsHtml = `
+            <div class="col-6 col-md-3 mb-3">
+                <div class="stat-card">
+                    <span class="stat-value text-success">${summary.approved_count}</span>
+                    <span class="stat-label">Approved</span>
+                </div>
+            </div>
+            <div class="col-6 col-md-3 mb-3">
+                <div class="stat-card">
+                    <span class="stat-value text-warning">${altsCount}</span>
+                    <span class="stat-label">Alternatives</span>
+                </div>
+            </div>
+            <div class="col-6 col-md-3 mb-3">
+                <div class="stat-card">
+                    <span class="stat-value text-danger">${summary.rejected_count}</span>
+                    <span class="stat-label">Rejected</span>
+                </div>
+            </div>
+            <div class="col-6 col-md-3 mb-3">
+                <div class="stat-card">
+                    <span class="stat-value text-dark">${summary.total_inspected}</span>
+                    <span class="stat-label">Inspected</span>
+                </div>
+            </div>
+        `;
+        document.getElementById('summaryStats').innerHTML = statsHtml;
+
+        // Tags
+        const tagsHtml = Object.entries(result.requirements)
+            .map(([k, v]) => `<span class="requirement-pill"><span class="text-muted fw-bold me-1">${k}:</span> ${v}</span>`)
+            .join('');
+        document.getElementById('requirementTags').innerHTML = tagsHtml;
+
+        // Tabs setup
+        document.getElementById('approved-tab').innerText = `Approved (${result.approved.length})`;
+        document.getElementById('suggestions-tab').innerText = `Alternatives (${altsCount})`;
+        document.getElementById('rejected-tab').innerText = `Rejected (${result.rejected.length})`;
+
+        // Populate filter dropdowns
+        populateFilters(result);
+
+        // Render Lists
+        renderProductList(result.approved, 'approvedList', 'approved');
+        renderProductList(result.suggested_alternatives || [], 'suggestionsList', 'suggestion');
+        renderProductList(result.rejected, 'rejectedList', 'rejected');
+    }
+
+    function renderProductList(items, containerId, category) {
+        const container = document.getElementById(containerId);
+        if (!items || items.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="mb-3 opacity-50"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    <h5>No products found in this category</h5>
+                    <p class="mb-0">Try adjusting your requirements if needed.</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = items.map(item => {
+            const p = item.product;
+            const eval = item.evaluation;
+            const badgeClass = p.platform.toLowerCase() === 'amazon' ? 'badge-amazon' : 'badge-flipkart';
+            
+            let verdictClass, verdictIcon, verdictText, verdictColor;
+            if (category === 'approved') {
+                verdictClass = 'verdict-approved'; verdictIcon = '✅'; verdictText = 'APPROVED'; verdictColor = 'text-success';
+            } else if (category === 'suggestion') {
+                verdictClass = 'verdict-suggestion'; verdictIcon = '💡'; verdictText = 'EXCELLENT ALTERNATIVE'; verdictColor = 'text-warning';
+            } else {
+                verdictClass = 'verdict-rejected'; verdictIcon = '❌'; verdictText = 'REJECTED'; verdictColor = 'text-danger';
+            }
+            
+            // Build specs HTML (filter out hidden fields)
+            const specEntries = Object.entries(p.specs).filter(([k]) => !k.startsWith('_'));
+            const specsHtml = specEntries.map(([k, v]) => `
+                <div class="spec-item">
+                    <span class="spec-key">${k}</span>
+                    <span class="spec-val">${v}</span>
+                </div>
+            `).join('');
+
+            // Build Reviews HTML
+            let reviewsHtml = '';
+            if (p.reviews && p.reviews.length > 0) {
+                reviewsHtml = `
+                    <div class="reviews-section">
+                        <h6 class="fw-bold text-muted mb-2 d-flex align-items-center" style="font-size:0.8rem">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="me-1"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                            Top Reviews & Comments
+                        </h6>
+                        <div class="mt-2 text-dark">
+                            ${p.reviews.map(r => `<div class="review-box ps-4">${r}</div>`).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Data attributes for filtering
+            const bBrand = p.specs['_brand_normalised'] || 'Unknown';
+            const bPlatform = p.platform || 'Unknown';
+
+            return `
+                <div class="product-card" data-brand="${bBrand}" data-platform="${bPlatform}">
+                    <div class="product-header">
+                        <div>
+                            <span class="platform-badge ${badgeClass} mb-2 d-inline-block">${p.platform}</span>
+                            <h5 class="mb-1 fw-bold" style="color:#1e293b; max-width: 90%;">${p.title}</h5>
+                            <span class="text-primary fw-bold" style="font-size: 1.4rem;">${p.price_raw || 'Price N/A'}</span>
+                        </div>
+                        <a href="${p.url}" target="_blank" class="btn btn-sm btn-outline-primary fw-bold px-3">View</a>
+                    </div>
+                    
+                    <div class="spec-grid">
+                        ${specsHtml}
+                    </div>
+                    
+                    ${reviewsHtml}
+
+                    <div class="verdict-area ${verdictClass}">
+                        <div class="d-flex align-items-center mb-1">
+                            <strong class="${verdictColor} me-2 d-flex align-items-center">
+                                <span class="me-1">${verdictIcon}</span> ${verdictText}
+                            </strong>
+                            <span class="small bg-white px-2 py-1 rounded text-muted shadow-sm fw-medium border">Confidence: <b>${eval.confidence}</b></span>
+                        </div>
+                        <p class="mb-0 small fw-medium mt-2">${eval.reason}</p>
+                        ${(category === 'rejected' || category === 'suggestion') && eval.failed_specs && eval.failed_specs.length ? `
+                            <div class="mt-2 d-flex align-items-center flex-wrap gap-1">
+                                <span class="small fw-bold text-muted me-1">Violations:</span>
+                                ${eval.failed_specs.map(f => `<span class="badge bg-white text-danger border border-danger-subtle">${f}</span>`).join('')}
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    // --- Filters ---
+    function populateFilters(result) {
+        const brands = new Set();
+        
+        const allItems = [...result.approved, ...(result.suggested_alternatives || []), ...result.rejected];
+        allItems.forEach(item => {
+            if (item.product.specs['_brand_normalised']) {
+                brands.add(item.product.specs['_brand_normalised']);
+            }
+        });
+
+        const brandSelect = document.getElementById('filterBrand');
+        brandSelect.innerHTML = '<option value="all">All Brands</option>';
+        [...brands].sort().forEach(b => {
+             brandSelect.innerHTML += `<option value="${b}">${b}</option>`;
+        });
+    }
+
+    function applyFilters() {
+        const brand = document.getElementById('filterBrand').value;
+        const platform = document.getElementById('filterPlatform').value;
+        
+        const cards = document.querySelectorAll('.product-card');
+        cards.forEach(card => {
+            const matchBrand = brand === 'all' || card.dataset.brand === brand;
+            const matchPlatform = platform === 'all' || card.dataset.platform === platform;
+            
+            if (matchBrand && matchPlatform) {
+                card.style.display = 'block';
+            } else {
+                card.style.display = 'none';
+            }
+        });
+    }
+
+    // --- History / LocalStorage ---
+    function saveToHistory(resultData) {
+        let history = JSON.parse(localStorage.getItem('procureHistory') || '[]');
+        // Prepend new result
+        history.unshift(resultData);
+        // Keep only last 10
+        if (history.length > 10) history = history.slice(0, 10);
+        localStorage.setItem('procureHistory', JSON.stringify(history));
+        loadHistorySidebar();
+    }
+
+    function loadHistorySidebar() {
+        const historyList = document.getElementById('historyList');
+        if (!historyList) return;
+        
+        let history = JSON.parse(localStorage.getItem('procureHistory') || '[]');
+        if (history.length === 0) {
+            historyList.innerHTML = '<div class="text-muted small py-2">No past searches found.</div>';
+            return;
+        }
+
+        historyList.innerHTML = history.map((item, index) => {
+            const dateStr = new Date(item.timestamp).toLocaleString(undefined, {
+                month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'
+            });
+            const q = item.original_query || 'Unknown query';
+            
+            return `
+                <div class="history-item shadow-sm border" onclick="loadHistoryItem(${index})">
+                    <div class="history-query">${q}</div>
+                    <div class="history-time mt-1 text-primary d-flex justify-content-between">
+                        <span>${dateStr}</span>
+                        <span class="fw-bold">
+                            ${item.search_summary?.approved_count || 0} ✓
+                        </span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    window.loadHistoryItem = function(index) {
+        const history = JSON.parse(localStorage.getItem('procureHistory') || '[]');
+        if (history[index]) {
+            document.getElementById('requestText').value = history[index].original_query;
+            showResults(history[index]);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    }
+
+    function resetSearch() {
+        clearInterval(pollTimer);
+        currentJobId = null;
+        document.getElementById('searchBtn').disabled = false;
+        document.getElementById('progressArea').style.display = 'none';
+        document.getElementById('resultsArea').style.display = 'none';
+        document.getElementById('requestText').value = '';
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
