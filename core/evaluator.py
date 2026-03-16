@@ -1,18 +1,22 @@
 """
-core/evaluator.py — LLM Evaluator (Gemini)
+core/evaluator.py — LLM Evaluator
 ==================================================
-Uses Gemini 1.5 Flash to strictly evaluate each scraped product
-against the procurement requirements.
+Uses Groq (via LangChain) to strictly evaluate each scraped product
+against the procurement requirements using Structured Outputs and TOML
+compression for optimal token usage.
 """
 
 import os
-import re
 import json
 import logging
 import asyncio
-from typing import Dict, Any
+from typing import Dict, Any, List
 from dotenv import load_dotenv
-from groq import AsyncGroq
+
+from pydantic import BaseModel, Field
+from langchain_groq import ChatGroq
+from langchain_core.prompts import ChatPromptTemplate
+from core.utils import dict_to_toml
 
 load_dotenv()
 
@@ -20,9 +24,16 @@ log = logging.getLogger(__name__)
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
+class EvaluationResult(BaseModel):
+    verdict: str = Field(description="Must be exactly 'APPROVED' or 'REJECTED'")
+    reason: str = Field(description="One sentence explaining the decision. If rejected due to price, explicitly state that.")
+    matched_specs: Dict[str, str] = Field(description="Dictionary of specs that passed the constraints.")
+    failed_specs: List[str] = Field(description="List of constraint fields that failed or were missing.")
+    confidence: str = Field(description="'high', 'medium', or 'low'")
+
 class LLMEvaluator:
     """
-    Evaluates a product against requirements using Gemini 1.5 Flash.
+    Evaluates a product against requirements using LangChain + Groq.
     """
 
     SYSTEM_PROMPT = """
@@ -32,7 +43,7 @@ EVALUATION RULES — follow strictly, no exceptions:
 1. ONLY evaluate the product against the specific fields provided in 'USER REQUIREMENTS'.
 2. MISSING SPECS: If a spec (like screen size, panel type, refresh rate, etc.) is NOT explicitly mentioned in 'USER REQUIREMENTS', DO NOT reject the product because of it. IGNORE IT entirely. A product is not "missing" a spec if the user didn't ask for it.
    - Example: DO NOT reject because "Screen size is 0" or "Screen size missing" if it wasn't requested. Just assume it passes.
-3. FAILURES: If a required spec IS in 'USER REQUIREMENTS' but is MISSING or WRONG in the product data → REJECTED.
+3. FAILURES: If a required spec IS in 'USER REQUIREMENTS' but is MISSING or WRONG in the product data -> REJECTED.
 4. PRICE HIERARCHY: Price is the most important constraint. If the product's price exceeds the maximum price specified by the user, the reason for rejection MUST be the price.
 5. TECHNICAL TERMINOLOGY & HUMAN LOGIC (CRITICAL):
    - RAM vs STORAGE CONFUSION: NEVER confuse RAM and Storage! "DDR4", "DDR5", "LPDDR5", "LPDDR4x", "Memory", "SDRAM" ALWAYS mean RAM (e.g. 8GB, 16GB, 32GB). "SSD", "HDD", "NVMe", "PCIe", "Solid State Drive", "eMMC" ALWAYS mean Storage (e.g. 256GB, 512GB, 1TB, 2TB). 
@@ -46,22 +57,19 @@ EVALUATION RULES — follow strictly, no exceptions:
 6. BRAND MATCHING: If multiple brands are given in requirements (e.g. "Asus, Acer"), the product MUST be one of them. Do not reject if it matched either one. 
 7. ALTERNATIVE BRANDS: If a product PERFECTLY matches all requirements (Price, RAM, Storage, CPU, etc.) but fails ONLY on the "Brand" requirement, you must still output "REJECTED" but make sure that "Brand" is the EXACT and ONLY item in "failed_specs". Do not hallucinate other failures like RAM or Storage if they actually match.
 8. Be conservative but fair. Do not hallucinate failures for requirements that were never stated. Do not punish the product if the scraper formatted a spec weirdly but a human would understand it matches.
-
-You must output valid JSON only. Output a JSON object with this structure:
-{
-  "verdict": "APPROVED" or "REJECTED",
-  "reason": "One sentence explaining the decision. If rejected due to price, explicitly state that.",
-  "matched_specs": {"Field": "Value"},
-  "failed_specs": ["list of fields that failed or were missing"],
-  "confidence": "high" or "medium" or "low"
-}
 """
 
     def __init__(self, model_name: str = "llama-3.3-70b-versatile"):
         self.model_name = model_name
         self.client_configured = bool(GROQ_API_KEY)
         if self.client_configured:
-            self.client = AsyncGroq(api_key=GROQ_API_KEY)
+            llm = ChatGroq(model=self.model_name, temperature=0, groq_api_key=GROQ_API_KEY)
+            self.structured_llm = llm.with_structured_output(EvaluationResult)
+            self.prompt_template = ChatPromptTemplate.from_messages([
+                ("system", self.SYSTEM_PROMPT),
+                ("human", "{user_prompt}")
+            ])
+            self.chain = self.prompt_template | self.structured_llm
 
     async def evaluate(self, requirement_dict: Dict[str, Any], product_dict: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -77,39 +85,37 @@ You must output valid JSON only. Output a JSON object with this structure:
                 "confidence": "high"
             }
 
-        # Prepare the prompt
-        prompt = f"""
-USER REQUIREMENTS:
-{json.dumps(requirement_dict, indent=2)}
+        # Convert the dictionaries to compressed TOML strings to save tokens
+        req_toml = dict_to_toml(requirement_dict)
+        
+        # Product dict has title, price, specs, etc. We just convert the top level dict
+        compressed_product_dict = {
+            "title": product_dict.get('title'),
+            "price_raw": product_dict.get('price_raw'),
+            "platform": product_dict.get('platform'),
+            "url": product_dict.get('url'),
+            "specs": product_dict.get('specs', {})
+        }
+        prod_toml = dict_to_toml(compressed_product_dict)
 
-SCRAPED PRODUCT DATA:
-Title: {product_dict.get('title')}
-Price: {product_dict.get('price_raw')} (Numeric: {product_dict.get('price_num')})
-Platform: {product_dict.get('platform')}
-URL: {product_dict.get('url')}
+        # Prepare the prompt payload
+        user_prompt = f"""
+USER REQUIREMENTS (TOML format):
+{req_toml}
 
-SPECIFICATIONS (including normalised values):
-{json.dumps(product_dict.get('specs', {}), indent=2)}
+SCRAPED PRODUCT DATA (TOML format):
+{prod_toml}
 
-Evaluate this product. BE STRICT. Output JSON ONLY.
+Evaluate this product. BE STRICT.
 """
 
         # Retry logic with exponential backoff for rate limits
         for attempt in range(5):
             try:
-                chat_completion = await self.client.chat.completions.create(
-                    model=self.model_name,
-                    messages=[
-                        {"role": "system", "content": self.SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt}
-                    ],
-                    response_format={"type": "json_object"},
-                    temperature=0.0
-                )
-                
-                response_text = chat_completion.choices[0].message.content
-                if response_text:
-                    return self._parse_llm_response(response_text)
+                # Async invoke
+                response_obj = await self.chain.ainvoke({"user_prompt": user_prompt})
+                # Convert the Pydantic instance back to dictionary for existing codebase
+                return response_obj.model_dump()
                 
             except Exception as e:
                 err_str = str(e).lower()
@@ -132,25 +138,3 @@ Evaluate this product. BE STRICT. Output JSON ONLY.
             "failed_specs": ["LLM API Error"],
             "confidence": "high"
         }
-
-    def _parse_llm_response(self, raw: str) -> Dict[str, Any]:
-        """Robustly parse JSON from LLM response."""
-        try:
-            return json.loads(raw)
-        except Exception as e:
-            # Fallback to regex if LLM adds chatter despite json_object mode
-            try:
-                match = re.search(r"\{.*\}", raw, re.DOTALL)
-                if match:
-                    return json.loads(match.group(0))
-            except:
-                pass
-                
-            log.error(f"Failed to parse LLM response: {e}\nRaw response: {raw}")
-            return {
-                "verdict": "REJECTED",
-                "reason": f"System error: Failed to parse evaluator response",
-                "matched_specs": {},
-                "failed_specs": ["Parsing Error"],
-                "confidence": "low"
-            }

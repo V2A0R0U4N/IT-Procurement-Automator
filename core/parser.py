@@ -2,12 +2,19 @@
 core/parser.py — Requirement Parser
 ======================================
 Converts plain-English procurement requests into structured ProcurementRequirement objects.
-Uses regex-based extraction for all fields.
+Uses LangChain and Groq LLM (llama-3.1-8b-instant) for robust NLP extraction.
 """
 
+import os
 import re
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, List
+from pydantic import BaseModel, Field
+from langchain_groq import ChatGroq
+from langchain_core.prompts import ChatPromptTemplate
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 @dataclass
@@ -28,173 +35,72 @@ class ProcurementRequirement:
     raw_text:           str            = ""       # original input for reference
 
 
+class LLMProcurementRequirement(BaseModel):
+    category: str = Field(default="", description="The product category like laptop, monitor, desktop, printer. Default to empty if unknown. 'MacBook' is a laptop.")
+    brands: List[str] = Field(default_factory=list, description="List of recognized brands requested. If MacBook or iPad is mentioned, include 'Apple'.")
+    processor_model: str = Field(default="", description="The processor model (e.g., 'i5', 'i7', 'Ryzen 5', 'M1', 'M4'). Standardize Apple Silicon (m4 -> M4).")
+    processor_gen_min: Optional[int] = Field(default=None, description="The minimum processor generation (e.g., 12 for 12th gen).")
+    ram_gb: Optional[int] = Field(default=None, description="The requested RAM size in GB (e.g., 8, 16, 32). MUST NOT be confused with storage. Standard memory sizes: 4, 8, 16, 32, 64.")
+    storage_gb: Optional[int] = Field(default=None, description="The requested Storage size in GB (e.g., 256, 512, 1024). MUST NOT be confused with RAM. Valid storage sizes: 128, 256, 512, 1000, 1024, 2000, etc.")
+    storage_type: str = Field(default="", description="The storage type (e.g., SSD, HDD, NVMe).")
+    screen_size_inches: Optional[float] = Field(default=None, description="The requested screen size in inches (e.g., 15.6, 27.0).")
+    resolution: str = Field(default="", description="The resolution (e.g., 4K, 2K, 1080p, HD).")
+    panel_type: str = Field(default="", description="The display panel type (e.g., IPS, VA, OLED, TN).")
+    max_price: Optional[float] = Field(default=None, description="The maximum price in numeric format without currency symbols.")
+    currency: str = Field(default="INR", description="The currency specified, 'INR' or 'USD'. Defaults to 'INR'.")
+
+
+_parser_llm = None
+
+def get_parser_llm():
+    global _parser_llm
+    if _parser_llm is None:
+        groq_api_key = os.getenv("GROQ_API_KEY")
+        if not groq_api_key:
+            raise ValueError("GROQ_API_KEY environment variable is not set.")
+        # Setup Langchain LLM with structure output
+        _llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0, groq_api_key=groq_api_key)
+        _parser_llm = _llm.with_structured_output(LLMProcurementRequirement)
+    return _parser_llm
+
+
 def parse_requirement(text: str) -> ProcurementRequirement:
     """
     Parse a natural language or structured procurement request into
     a ProcurementRequirement object.
-
-    Handles inputs like:
-    - "Brand must be Asus or Samsung"
-    - "I need an Asus laptop with at least 16 gigs of RAM"
-    - "Processor must be Intel Core i5 (12th Gen or higher)"
+    
+    Uses LangChain to perfectly map ambiguous request language.
     """
-    req = ProcurementRequirement(raw_text=text)
-    lower = text.lower()
-
-    # ── Category ─────────────────────────────────────────────────────────────
-    categories = {
-        "laptop":   ["laptop", "laptops", "notebook", "notebooks", "macbook", "macbooks"],
-        "monitor":  ["monitor", "monitors", "display", "displays", "screen"],
-        "keyboard": ["keyboard", "keyboards"],
-        "mouse":    ["mouse", "mice"],
-        "desktop":  ["desktop", "desktops", "pc", "workstation"],
-        "printer":  ["printer", "printers"],
-        "headset":  ["headset", "headsets", "headphone", "headphones"],
-    }
-    for cat, keywords in categories.items():
-        if any(kw in lower for kw in keywords):
-            req.category = cat
-            break
-
-    # ── Brands ───────────────────────────────────────────────────────────────
-    # Pattern: "Brand must be Asus or Samsung", "Brand: Asus, Samsung"
-    brand_match = re.search(
-        r"brand\s*(?:must\s+be|should\s+be|:|is|=)\s*(.+?)(?:\n|$|\.)",
-        lower
+    parser = get_parser_llm()
+    
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "You are an expert IT Procurement requirement extractor. Your job is to extract exact specifications requested by the user. Pay extreme attention to the context. A 'MacBook' implies an 'Apple' 'laptop'. '16GB' implies RAM, '512GB' implies Storage. Do not hallucinate fields that were not explicitly mentioned. For missing fields, return null or empty string."),
+        ("human", "{text}")
+    ])
+    
+    chain = prompt | parser
+    extracted_pydantic = chain.invoke({"text": text})
+    
+    req = ProcurementRequirement(
+        category=extracted_pydantic.category,
+        brands=extracted_pydantic.brands,
+        processor_model=extracted_pydantic.processor_model,
+        processor_gen_min=extracted_pydantic.processor_gen_min,
+        ram_gb=extracted_pydantic.ram_gb,
+        storage_gb=extracted_pydantic.storage_gb,
+        storage_type=extracted_pydantic.storage_type,
+        screen_size_inches=extracted_pydantic.screen_size_inches,
+        resolution=extracted_pydantic.resolution,
+        panel_type=extracted_pydantic.panel_type,
+        max_price=extracted_pydantic.max_price,
+        currency=extracted_pydantic.currency,
+        raw_text=text
     )
-    if brand_match:
-        brand_text = brand_match.group(1)
-        # Split on "or", "and", "/", ","
-        parts = re.split(r"\s+or\s+|\s+and\s+|[/,]", brand_text)
-        req.brands = [p.strip().title() for p in parts if p.strip()]
-    else:
-        # Try to find brand names directly in text
-        known_brands = [
-            "Asus", "Samsung", "Dell", "HP", "Lenovo", "Acer", "MSI",
-            "Apple", "LG", "BenQ", "ViewSonic", "Logitech", "Razer",
-            "Microsoft", "Sony", "Toshiba", "Gigabyte",
-        ]
-        for brand in known_brands:
-            if brand.lower() in lower:
-                req.brands.append(brand)
-        if "macbook" in lower or "mac mini" in lower or "imac" in lower or "ipad" in lower:
-            if "Apple" not in req.brands:
-                req.brands.append("Apple")
-
-    # ── Processor Model ──────────────────────────────────────────────────────
-    proc_match = re.search(
-        r"(?:intel\s+)?(?:core\s+)?(i[3579]|ryzen\s*\d|m[1-4](?:\s*pro|\s*max)?)",
-        lower
-    )
-    if proc_match:
-        model = proc_match.group(1).strip()
-        # Normalise: "i5" → "i5", "ryzen 5" → "Ryzen 5", "m4" -> "M4"
-        if model.startswith("i"):
-            req.processor_model = model
-        elif model.startswith("m") and len(model) >= 2 and model[1].isdigit():
-            req.processor_model = model.upper()
-        else:
-            req.processor_model = model.title()
-
-    # ── Processor Generation ─────────────────────────────────────────────────
-    gen_match = re.search(r"(\d+)(?:st|nd|rd|th)\s*gen", lower)
-    if gen_match:
-        req.processor_gen_min = int(gen_match.group(1))
-
-    # ── RAM ──────────────────────────────────────────────────────────────────
-    # Look closely for RAM keywords to avoid grabbing Storage Size (like 512gb)
-    ram_match = re.search(r"(\d+)\s*(?:gb|gigs?)\s+(?:ram|memory|ddr\d*|unified)", lower)
-    if ram_match:
-        req.ram_gb = int(ram_match.group(1))
-    else:
-        # Fallback: Check if there's a standalone standalone GB value that looks purely like RAM (4, 8, 16, 32, 64)
-        for val_str in re.findall(r"(\d+)\s*(?:gb|gigs?)", lower):
-            val = int(val_str)
-            if val in [4, 8, 16, 32, 64]:
-                req.ram_gb = val
-                break
-
-    # ── Storage ──────────────────────────────────────────────────────────────
-    # Make sure we don't accidentally grab "16" in "16GB RAM and 512GB SSD"
-    # By looking specifically for sizes like 128, 256, 512, 1000, 1024, or requiring a storage keyword
-    # We first look for a number near a storage keyword
-    storage_kw_match = re.search(r"(\d+)\s*(?:gb|tb)\s*(?:ssd|hdd|nvme)", lower)
-    if storage_kw_match:
-        val = int(storage_kw_match.group(1))
-        unit_text = storage_kw_match.group(0).lower()
-        if "tb" in unit_text:
-            val *= 1024
-        req.storage_gb = val
-    else:
-        # If no explicit keyword, look for generic GB/TB, but be careful of RAM
-        all_matches = re.findall(r"(\d+)\s*(?:gb|tb)", lower)
-        for val_str in all_matches:
-            val = int(val_str)
-            if val >= 100 and val not in [128, 256, 512, 1000, 1024] and val != int(val_str):
-                continue
-            idx = lower.find(val_str)
-            if idx != -1:
-                try:
-                    after_str = lower.split(val_str, 1)[1]
-                    is_tb = after_str.strip().startswith("tb")
-                    if val >= 120 or is_tb:
-                        if is_tb:
-                            req.storage_gb = val * 1024
-                        else:
-                            req.storage_gb = val
-                        break
-                except Exception:
-                    pass
-
-    # Storage type
-    if "nvme" in lower:
-        req.storage_type = "NVMe"
-    elif "ssd" in lower:
-        req.storage_type = "SSD"
-    elif "hdd" in lower:
-        req.storage_type = "HDD"
-
-    # ── Screen Size ──────────────────────────────────────────────────────────
-    screen_match = re.search(r"(\d+\.?\d*)\s*(?:inch|inches|\"|in\b|'')", lower)
-    if screen_match:
-        req.screen_size_inches = float(screen_match.group(1))
-
-    # ── Resolution ───────────────────────────────────────────────────────────
-    res_patterns = {
-        "4K":    [r"4k", r"uhd", r"2160p?", r"3840\s*x\s*2160"],
-        "2K":    [r"2k", r"qhd", r"1440p?", r"2560\s*x\s*1440"],
-        "1080p": [r"1080p?", r"fhd", r"full\s*hd", r"1920\s*x\s*1080"],
-        "HD":    [r"\b720p?\b", r"\bhd\b"],
-    }
-    for res_name, patterns in res_patterns.items():
-        if any(re.search(p, lower) for p in patterns):
-            req.resolution = res_name
-            break
-
-    # ── Panel Type ───────────────────────────────────────────────────────────
-    panel_match = re.search(r"\b(ips|va|tn|oled|amoled)\b", lower)
-    if panel_match:
-        req.panel_type = panel_match.group(1).upper()
-
-    # ── Price ────────────────────────────────────────────────────────────────
-    price_match = re.search(
-        r"(?:under|below|max(?:imum)?|within|budget|less\s+than|up\s+to)"
-        r"\s*[₹$]?\s*([\d,]+(?:\.\d+)?)",
-        lower
-    )
-    if price_match:
-        price_str = price_match.group(1).replace(",", "")
-        try:
-            req.max_price = float(price_str)
-        except ValueError:
-            pass
-
-    # Detect currency
-    if "$" in text or "usd" in lower:
-        req.currency = "USD"
-    else:
+    
+    # Fallback to INR if USD wasn't mentioned
+    if "usd" not in text.lower() and "$" not in text:
         req.currency = "INR"
-
+        
     return req
 
 
