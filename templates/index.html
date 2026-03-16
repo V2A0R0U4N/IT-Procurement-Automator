@@ -661,14 +661,45 @@
                 verdictClass = 'verdict-rejected'; verdictIcon = '❌'; verdictText = 'REJECTED'; verdictColor = 'text-danger';
             }
             
-            // Build specs HTML (filter out hidden fields)
-            const specEntries = Object.entries(p.specs).filter(([k]) => !k.startsWith('_'));
-            const specsHtml = specEntries.map(([k, v]) => `
-                <div class="spec-item">
-                    <span class="spec-key">${k}</span>
-                    <span class="spec-val">${v}</span>
-                </div>
-            `).join('');
+            // Build specs HTML
+            let specsHtml = '';
+            const rawSpecEntries = Object.entries(p.specs).filter(([k]) => !k.startsWith('_'));
+            
+            // If we have raw specs (e.g. from table), show them
+            if (rawSpecEntries.length > 0) {
+                specsHtml = rawSpecEntries.map(([k, v]) => `
+                    <div class="spec-item">
+                        <span class="spec-key">${k}</span>
+                        <span class="spec-val">${v}</span>
+                    </div>
+                `).join('');
+            } else {
+                // FALLBACK: If scraper failed to get raw table but normaliser extracted from title/LD+JSON
+                const normSpecEntries = Object.entries(p.specs).filter(([k]) => k.startsWith('_') && !k.includes('price'));
+                if (normSpecEntries.length > 0) {
+                    specsHtml = normSpecEntries.map(([k, v]) => {
+                        // Clean up the key name: _ram_normalised -> RAM
+                        let cleanKey = k.replace(/_/g, '').replace('normalised', '').trim();
+                        cleanKey = cleanKey.charAt(0).toUpperCase() + cleanKey.slice(1);
+                        return `
+                        <div class="spec-item bg-light border-warning-subtle">
+                            <span class="spec-key text-secondary">${cleanKey} <small>(inferred)</small></span>
+                            <span class="spec-val">${v}</span>
+                        </div>
+                        `;
+                    }).join('');
+                } else if (p.description) {
+                    // Ultimate fallback: show description
+                    specsHtml = `
+                    <div class="spec-item" style="grid-column: span 2">
+                        <span class="spec-key">Details</span>
+                        <span class="spec-val text-muted small">${p.description.substring(0, 150)}...</span>
+                    </div>
+                    `;
+                } else {
+                    specsHtml = `<div class="text-muted small w-100 p-2 text-center">No detailed specs available</div>`;
+                }
+            }
 
             // Build Reviews HTML
             let reviewsHtml = '';

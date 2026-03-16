@@ -25,7 +25,7 @@ logging.basicConfig(
 # ─────────────────────────────────────────────────────────────────────────────
 
 HEADLESS       = True
-MAX_PRODUCTS   = 5        # max product pages to visit per platform
+MAX_PRODUCTS   = 3        # max product pages to visit per platform
 DELAY_MIN      = 2.0      # seconds between actions (polite + anti-bot)
 DELAY_MAX      = 4.0
 PAGE_TIMEOUT   = 20000    # ms

@@ -37,26 +37,44 @@ class LLMEvaluator:
     """
 
     SYSTEM_PROMPT = """
-You are an IT Procurement Verification Agent. Your job is to strictly evaluate if a scraped product EXACTLY matches the user's requirements.
+You are an IT Procurement Verification Agent. Evaluate each product SPEC BY SPEC.
 
-EVALUATION RULES — follow strictly, no exceptions:
-1. ONLY evaluate the product against the specific fields provided in 'USER REQUIREMENTS'.
-2. MISSING SPECS: If a spec (like screen size, panel type, refresh rate, etc.) is NOT explicitly mentioned in 'USER REQUIREMENTS', DO NOT reject the product because of it. IGNORE IT entirely. A product is not "missing" a spec if the user didn't ask for it.
-   - Example: DO NOT reject because "Screen size is 0" or "Screen size missing" if it wasn't requested. Just assume it passes.
-3. FAILURES: If a required spec IS in 'USER REQUIREMENTS' but is MISSING or WRONG in the product data -> REJECTED.
-4. PRICE HIERARCHY: Price is the most important constraint. If the product's price exceeds the maximum price specified by the user, the reason for rejection MUST be the price.
-5. TECHNICAL TERMINOLOGY & HUMAN LOGIC (CRITICAL):
-   - RAM vs STORAGE CONFUSION: NEVER confuse RAM and Storage! "DDR4", "DDR5", "LPDDR5", "LPDDR4x", "Memory", "SDRAM" ALWAYS mean RAM (e.g. 8GB, 16GB, 32GB). "SSD", "HDD", "NVMe", "PCIe", "Solid State Drive", "eMMC" ALWAYS mean Storage (e.g. 256GB, 512GB, 1TB, 2TB). 
-   - 🚨 **CRITICAL RULE**: Storage is ALMOST ALWAYS 128GB, 256GB, 512GB, 1TB. RAM is almost always 4GB, 8GB, 16GB, 32GB. If you think the user asked for "16GB Storage" or "16GB SSD", YOU ARE WRONG. They asked for 16GB RAM. Do not reject a 512GB SSD requirement just because you see the number 16 next to the word GB!
-   - 🚨 **STRICT STORAGE MATCHING**: If the user asks for 512GB Storage, a 256GB product is a FAILURE. You must REJECT IT. If the product title says 256GB, and the requirement is 512GB, REJECT IT. If the product data has NO storage information at all, and the user required 512GB, REJECT IT.
-   - PROCESSOR GENERATIONS: "1235U", "1255U", "12700H" all mean "12th Gen". "1334U", "13500H" mean "13th Gen". "14700HX" means "14th Gen", and so on. If '12th Gen or higher' is required, 12th, 13th, 14th Gen are all matches.
-   - PROCESSOR TIERS: If "Core i5" is required, "i5-1235U" and "i5-1334U" are perfect matches. DO NOT reject them.
-   - RESOLUTION: "FHD", "1920x1080", "1080p", "1920 x 1080 pixels" are all exactly the SAME thing. Do not reject one for the other.
-   - OS: "Windows 11 Home", "Win 11", "Windows 11" are the same.
-   - SCREEN SIZE DECIMAL ALLOWANCE: Screen sizes have decimal variations (e.g. 15.6" vs 15", 14" vs 14.1"). DO NOT reject a laptop if the screen size is within 0.6 inches of the requested size. For example, if the user asks for 15 inch, accept 15.6 inch. If the user asks for 16 inch, accept 15.6 inch.
-6. BRAND MATCHING: If multiple brands are given in requirements (e.g. "Asus, Acer"), the product MUST be one of them. Do not reject if it matched either one. 
-7. ALTERNATIVE BRANDS: If a product PERFECTLY matches all requirements (Price, RAM, Storage, CPU, etc.) but fails ONLY on the "Brand" requirement, you must still output "REJECTED" but make sure that "Brand" is the EXACT and ONLY item in "failed_specs". Do not hallucinate other failures like RAM or Storage if they actually match.
-8. Be conservative but fair. Do not hallucinate failures for requirements that were never stated. Do not punish the product if the scraper formatted a spec weirdly but a human would understand it matches.
+STEP 1 — CHECKLIST: For every field in USER REQUIREMENTS, look it up in this order:
+  (a) NORMALISED SPECS section (these are authoritative — use for all numeric comparisons)
+  (b) Raw SCRAPED PRODUCT DATA
+  (c) Product title as last resort
+  Mark each field: PASS / FAIL / NOT-IN-REQUIREMENTS / MISSING
+
+STEP 2 — VERDICT RULES (in strict priority order):
+  1. If Price > max_price -> REJECTED. Reason must mention price. No exceptions.
+  2. If RAM normalised value is less than required -> REJECTED. (If GREATER or equal to required -> PASS).
+  3. If Storage normalised value is less than required -> REJECTED. (If GREATER or equal to required -> PASS).
+  4. If Processor generation is below minimum -> REJECTED. (If HIGHER or equal -> PASS).
+  5. If Brand required and product is not any of the listed brands -> REJECTED.
+     BUT only add "Brand" to failed_specs if ALL other specs (RAM, Storage, Processor, Price) PASS.
+  6. If a required spec is MISSING from both NORMALISED and raw data -> REJECTED.
+  7. If all required specs PASS -> APPROVED.
+
+ANTI-HALLUCINATION RULES:
+  - Never invent a spec that is not in the data.
+  - Never fail a spec that was NOT in USER REQUIREMENTS.
+  - Do not penalise missing specs the user never asked for.
+  - Never add vague failures like "incomplete specs" or "insufficient data".
+  - "16GB" in context of storage is physically impossible — it means RAM. Do not confuse them.
+  - 1TB is EXACTLY equal to 1024GB and 1000GB. If the user asks for 1024GB or 1TB Storage, and the product has 1TB, it is a PERFECT MATCH! DO NOT REJECT IT.
+  - Screen size within ±0.6 inches of requested = PASS. So 15.6" matches 15", 16", and vice versa.
+  - FHD / 1920x1080 / 1080p / Full HD = identical. Never fail one for another.
+  - Windows 11 / Win 11 = identical.
+  - i5-1235U, i5-1334U, i5-1340P are all "Core i5" — never reject on the specific model suffix.
+  - Gen detection: first 2 digits of model number = generation (e.g. i5-1235U → gen 12, i7-13700H → gen 13).
+  - "12th gen or higher" means 12th, 13th, 14th, 15th gen all PASS. Only generations BELOW 12 should FAIL.
+  - DDR4/DDR5/LPDDR5 are RAM keywords. SSD/NVMe/HDD are Storage keywords. Never mix them.
+
+CONFIDENCE RULES:
+  - confidence = "high" when all key specs are present in NORMALISED SPECS.
+  - confidence = "medium" when some specs are inferred from raw text.
+  - confidence = "low" only when critical specs (RAM, storage, price) are completely absent.
+  - A low-confidence APPROVED must list all inferred specs in matched_specs with "(inferred)" suffix.
 """
 
     def __init__(self, model_name: str = "llama-3.3-70b-versatile"):
@@ -88,13 +106,25 @@ EVALUATION RULES — follow strictly, no exceptions:
         # Convert the dictionaries to compressed TOML strings to save tokens
         req_toml = dict_to_toml(requirement_dict)
         
+        # Extract the normalised keys to a clean dict for the LLM
+        normalised_summary = {
+            k.replace("_","").replace("normalised","").strip(): v
+            for k, v in product_dict.get("specs", {}).items()
+            if k.startswith("_") and v
+        }
+        
         # Product dict has title, price, specs, etc. We just convert the top level dict
+        # Strip _normalised keys from the raw specs sent to LLM to avoid confusion
+        raw_specs = {
+            k: v for k, v in product_dict.get("specs", {}).items()
+            if not k.startswith("_")
+        }
         compressed_product_dict = {
             "title": product_dict.get('title'),
             "price_raw": product_dict.get('price_raw'),
             "platform": product_dict.get('platform'),
             "url": product_dict.get('url'),
-            "specs": product_dict.get('specs', {})
+            "specs": raw_specs
         }
         prod_toml = dict_to_toml(compressed_product_dict)
 
@@ -106,7 +136,10 @@ USER REQUIREMENTS (TOML format):
 SCRAPED PRODUCT DATA (TOML format):
 {prod_toml}
 
-Evaluate this product. BE STRICT.
+PRE-PARSED NORMALISED SPECS (use these for numeric comparisons — they are authoritative):
+{dict_to_toml(normalised_summary)}
+
+Evaluate this product. Use the NORMALISED SPECS section for all numeric comparisons (RAM, storage, price, screen size, processor generation). Use the raw specs only to verify brand and panel type. BE STRICT.
 """
 
         # Retry logic with exponential backoff for rate limits
@@ -114,8 +147,29 @@ Evaluate this product. BE STRICT.
             try:
                 # Async invoke
                 response_obj = await self.chain.ainvoke({"user_prompt": user_prompt})
-                # Convert the Pydantic instance back to dictionary for existing codebase
-                return response_obj.model_dump()
+                result = response_obj.model_dump()
+                
+                # ── Confidence gating ─────────────────────────────────────────
+                # If the LLM is uncertain, re-evaluate with a harder prompt
+                if result.get("confidence") == "low" and attempt == 0:
+                    harder_prompt = user_prompt + """
+
+IMPORTANT: You returned 'low' confidence. Re-read every spec carefully.
+- Do NOT leave failed_specs empty if you are unsure.
+- If data is missing for a required spec, it is a FAILURE.
+- If you cannot confirm a spec matches, mark it failed.
+- Do NOT return 'low' confidence again.
+Give a definitive verdict now.
+"""
+                    response_obj2 = await self.chain.ainvoke({"user_prompt": harder_prompt})
+                    result2 = response_obj2.model_dump()
+                    
+                    # Only adopt phase 2 if confidence improved
+                    if result2.get("confidence") in ("high", "medium"):
+                        result = result2
+                    result["_phase2_reviewed"] = True
+
+                return result
                 
             except Exception as e:
                 err_str = str(e).lower()

@@ -12,6 +12,7 @@ Key Flipkart-specific challenges:
 """
 
 import re
+import json
 import asyncio
 import random
 import logging
@@ -191,10 +192,14 @@ class FlipkartScraper:
             if m:
                 product.product_id = m.group(1)
 
-            # ── SPECS — 3 strategies ─────────────────────────────────────────
+            # ── SPECS — 4 strategies ─────────────────────────────────────────
+
+            # Strategy 0: LD+JSON structured data (most reliable)
+            specs = await self._extract_ldjson_specs()
 
             # Strategy 1: Expand accordion and extract spec table
-            specs = await self._extract_accordion_specs()
+            if len(specs) < 3:
+                specs.update(await self._extract_accordion_specs())
 
             # Strategy 2: Raw spec table without accordion
             if len(specs) < 3:
@@ -228,6 +233,58 @@ class FlipkartScraper:
 
     # ── Spec extraction strategies ────────────────────────────────────────────
 
+    async def _extract_ldjson_specs(self) -> dict:
+        """
+        Extract specs from LD+JSON structured data tags.
+        This is the most reliable source — machine-generated, guaranteed format.
+        """
+        specs = {}
+        try:
+            scripts = await self.page.query_selector_all('script[type="application/ld+json"]')
+            for script in scripts:
+                raw = await script.inner_text()
+                try:
+                    data = json.loads(raw)
+                    # Handle both array and object formats
+                    if isinstance(data, list):
+                        for item in data:
+                            self._extract_from_ldjson_item(item, specs)
+                    elif isinstance(data, dict):
+                        self._extract_from_ldjson_item(data, specs)
+                except json.JSONDecodeError:
+                    continue
+        except Exception as e:
+            log.debug(f"[Flipkart] LD+JSON extraction failed: {e}")
+        return specs
+
+    def _extract_from_ldjson_item(self, item: dict, specs: dict):
+        """Extract specs from a single LD+JSON item."""
+        if not isinstance(item, dict):
+            return
+        # Brand
+        brand = item.get("brand")
+        if isinstance(brand, dict):
+            brand = brand.get("name", "")
+        if brand:
+            specs["Brand"] = str(brand)
+        # Description
+        desc = item.get("description", "")
+        if desc and len(desc) > 10:
+            specs.setdefault("Description", str(desc)[:200])
+        # Model
+        model = item.get("model", "")
+        if model:
+            specs["Model"] = str(model)
+        # Additional properties (spec key-value pairs)
+        add_props = item.get("additionalProperty", [])
+        if isinstance(add_props, list):
+            for prop in add_props:
+                if isinstance(prop, dict):
+                    name = prop.get("name", "")
+                    value = prop.get("value", "")
+                    if name and value and len(str(name)) < 60:
+                        specs[str(name)] = str(value)
+
     async def _extract_accordion_specs(self) -> dict:
         """
         Flipkart shows specs in collapsible sections.
@@ -241,6 +298,10 @@ class FlipkartScraper:
             "._3hwKSh",
             "[class*='_2YjTDi']",
             "._3ZnBKC",
+            "button._2-riNZ",
+            "._2kHMtA button",
+            "._1s_Smc button",
+            "[class*='expandable']",
         ]
 
         for sel in expand_selectors:
@@ -254,8 +315,9 @@ class FlipkartScraper:
 
         # Extract from expanded table rows
         row_selectors = [
-            "tr._1s_Smc", "._14cfVK", "._2-riNZ", "table._2dETP tr", "._3_6Uyw ._14cfVK",
-            "div._1psv1zeb9 div._1psv1ze0", # New dynamic layout
+            "tr._1s_Smc", "._14cfVK", "._2-riNZ", "table._2dETP tr",
+            "._3_6Uyw ._14cfVK", "._2kHMtA tr",
+            "div._1psv1zeb9 div._1psv1ze0",  # New dynamic layout
         ]
 
         for sel in row_selectors:

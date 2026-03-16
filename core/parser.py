@@ -25,7 +25,7 @@ class ProcurementRequirement:
     processor_model:    str            = ""       # i3, i5, i7, i9, Ryzen 5, etc.
     processor_gen_min:  Optional[int]  = None     # minimum generation number
     ram_gb:             Optional[int]  = None     # exact RAM in GB
-    storage_gb:         Optional[int]  = None     # storage size in GB
+    storage:            Optional[str]  = None     # storage capacity (e.g., '1TB', '512GB')
     storage_type:       str            = ""       # SSD, HDD, NVMe
     screen_size_inches: Optional[float] = None    # e.g. 27.0
     resolution:         str            = ""       # 4K, 2K, 1080p, HD
@@ -36,12 +36,13 @@ class ProcurementRequirement:
 
 
 class LLMProcurementRequirement(BaseModel):
+    is_valid_procurement: bool = Field(default=False, description="Set to true ONLY if the user's prompt is genuinely asking for IT hardware procurement (like laptops, monitors, displays, pc) with or without specs. Set to false for conversational greetings, math, or unrelated topics.")
     category: str = Field(default="", description="The product category like laptop, monitor, desktop, printer. Default to empty if unknown. 'MacBook' is a laptop.")
     brands: List[str] = Field(default_factory=list, description="List of recognized brands requested. If MacBook or iPad is mentioned, include 'Apple'.")
     processor_model: str = Field(default="", description="The processor model (e.g., 'i5', 'i7', 'Ryzen 5', 'M1', 'M4'). Standardize Apple Silicon (m4 -> M4).")
     processor_gen_min: Optional[int] = Field(default=None, description="The minimum processor generation (e.g., 12 for 12th gen).")
     ram_gb: Optional[int] = Field(default=None, description="The requested RAM size in GB (e.g., 8, 16, 32). MUST NOT be confused with storage. Standard memory sizes: 4, 8, 16, 32, 64.")
-    storage_gb: Optional[int] = Field(default=None, description="The requested Storage size in GB (e.g., 256, 512, 1024). MUST NOT be confused with RAM. Valid storage sizes: 128, 256, 512, 1000, 1024, 2000, etc.")
+    storage: Optional[str] = Field(default=None, description="The requested Storage capacity exactly as mentioned (e.g., '256GB', '512GB', '1TB'). Do not convert TB to GB. MUST NOT be confused with RAM.")
     storage_type: str = Field(default="", description="The storage type (e.g., SSD, HDD, NVMe).")
     screen_size_inches: Optional[float] = Field(default=None, description="The requested screen size in inches (e.g., 15.6, 27.0).")
     resolution: str = Field(default="", description="The resolution (e.g., 4K, 2K, 1080p, HD).")
@@ -74,20 +75,23 @@ def parse_requirement(text: str) -> ProcurementRequirement:
     parser = get_parser_llm()
     
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are an expert IT Procurement requirement extractor. Your job is to extract exact specifications requested by the user. Pay extreme attention to the context. A 'MacBook' implies an 'Apple' 'laptop'. '16GB' implies RAM, '512GB' implies Storage. Do not hallucinate fields that were not explicitly mentioned. For missing fields, return null or empty string."),
+        ("system", "You are an expert IT Procurement requirement extractor. Your job is to extract exact specifications requested by the user. Pay extreme attention to the context. A 'MacBook' implies an 'Apple' 'laptop'. '16GB' implies RAM, '512GB' implies Storage. Do not hallucinate fields that were not explicitly mentioned. For missing fields, return null or empty string. CRITICAL: If the user's prompt is a greeting (e.g. 'hi', 'hello') or unrelated to IT hardware (e.g. '2+2', 'who are you'), set is_valid_procurement to false, otherwise true."),
         ("human", "{text}")
     ])
     
     chain = prompt | parser
     extracted_pydantic = chain.invoke({"text": text})
     
+    if not extracted_pydantic.is_valid_procurement:
+        raise ValueError("Please provide genuine product specifications (e.g. laptop, display, monitor with specs) to gather the information.")
+        
     req = ProcurementRequirement(
         category=extracted_pydantic.category,
         brands=extracted_pydantic.brands,
         processor_model=extracted_pydantic.processor_model,
         processor_gen_min=extracted_pydantic.processor_gen_min,
         ram_gb=extracted_pydantic.ram_gb,
-        storage_gb=extracted_pydantic.storage_gb,
+        storage=extracted_pydantic.storage,
         storage_type=extracted_pydantic.storage_type,
         screen_size_inches=extracted_pydantic.screen_size_inches,
         resolution=extracted_pydantic.resolution,
@@ -123,10 +127,10 @@ def build_search_queries(req: ProcurementRequirement) -> list[str]:
         parts.append(f"{req.processor_gen_min}th gen")
     if req.ram_gb:
         parts.append(f"{req.ram_gb}GB RAM")
-    if req.storage_gb and req.storage_type:
-        parts.append(f"{req.storage_gb}GB {req.storage_type}")
-    elif req.storage_gb:
-        parts.append(f"{req.storage_gb}GB SSD")
+    if req.storage and req.storage_type:
+        parts.append(f"{req.storage} {req.storage_type}")
+    elif req.storage:
+        parts.append(f"{req.storage} SSD")
     if req.screen_size_inches:
         parts.append(f"{req.screen_size_inches:.0f} inch")
     if req.resolution:
@@ -151,6 +155,8 @@ def build_search_queries(req: ProcurementRequirement) -> list[str]:
         broad_parts.append(req.category)
     if req.ram_gb:
         broad_parts.append(f"{req.ram_gb}GB RAM")
+    elif req.storage:
+        broad_parts.append(f"{req.storage}")
     elif req.screen_size_inches:
         broad_parts.append(f"{req.screen_size_inches:.0f} inch")
     if req.resolution:
@@ -186,8 +192,8 @@ def requirement_to_dict(req: ProcurementRequirement) -> dict:
         result["Min Processor Generation"] = f"{req.processor_gen_min}th Gen"
     if req.ram_gb is not None:
         result["RAM"] = f"{req.ram_gb}GB"
-    if req.storage_gb is not None:
-        storage_label = f"{req.storage_gb}GB"
+    if req.storage is not None:
+        storage_label = f"{req.storage}"
         if req.storage_type:
             storage_label += f" {req.storage_type}"
         result["Storage"] = storage_label
